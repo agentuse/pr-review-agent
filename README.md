@@ -6,11 +6,12 @@ AI-powered pull request automation you can actually read and customize.
 
 ## ✨ Features
 
+- **🔓 Open Source** - MIT licensed, fully transparent and hackable. Built on [AgentUse](https://github.com/agentuse/agentuse), also open source
 - **🔍 Automatic Code Review** - Reviews PRs on open/update
 - **💬 Comment Replies** - Mention `@agentuse` to ask questions
 - **✏️ Fully Customizable** - Edit prompts to match your team's standards
 - **🤖 Any Model** - Claude, GPT, or open-source (GLM, MiniMax) via [OpenRouter](https://openrouter.ai/models)
-- **🔓 No Vendor Lock-in** - Your prompts, your API keys, your control
+- **🔓 No Vendor Lock-in** - Your prompts, your API keys, your control. Don't like a company? Switch providers anytime
 
 ## 🚀 Quick Start
 
@@ -123,13 +124,18 @@ model: anthropic:claude-sonnet-4-5  # or openai:gpt-4o, openrouter:z-ai/glm-4.7
 
 ### Disable automatic reviews
 
-Remove the `pull_request` trigger in `.github/workflows/agentuse.yml`:
+Comment out the `pull_request` trigger in `.github/workflows/agentuse-code-review.yml`:
 
 ```yaml
 on:
-  # pull_request:  # Comment out to disable
-  issue_comment:
-    types: [created]
+  # pull_request:  # Comment out to disable automatic reviews
+  #   types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
 ```
 
 ---
@@ -138,7 +144,6 @@ on:
 
 - [AgentUse Documentation](https://docs.agentuse.io)
 - [AgentUse GitHub](https://github.com/agentuse/agentuse)
-- [Agent File Format](https://docs.agentuse.io/agents)
 
 ---
 
