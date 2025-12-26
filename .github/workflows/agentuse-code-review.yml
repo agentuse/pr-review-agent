@@ -1,0 +1,139 @@
+# AgentUse Code Review Workflow
+#
+# Automatic PR code review using AgentUse agents.
+#
+# SETUP: Add ONE of these secrets to your repository:
+#
+#   Option 1: Anthropic API Key (recommended)
+#   - Secret name: ANTHROPIC_API_KEY
+#   - Get from: https://console.anthropic.com
+#
+#   Option 2: Claude Code OAuth Token (for Claude Pro/Max users)
+#   - Secret name: CLAUDE_CODE_OAUTH_TOKEN
+#   - Get from: `claude setup-token` in Claude Code CLI (valid 1 year)
+#
+#   Option 3: OpenAI API Key
+#   - Secret name: OPENAI_API_KEY
+#   - Get from: https://platform.openai.com
+#   - Set MODEL env var to: openai:gpt-5.2
+#
+#   Option 4: OpenRouter API Key
+#   - Secret name: OPENROUTER_API_KEY
+#   - Get from: https://openrouter.ai/keys
+#   - Set MODEL env var to: openrouter:anthropic/claude-3.5-sonnet
+
+name: AgentUse
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      model:
+        description: 'Model override (e.g., anthropic:claude-opus-4-5)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Code Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup GitHub CLI (for act)
+        if: ${{ env.ACT }}
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get PR details
+        id: pr_details
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_DATA=$(gh pr view ${{ steps.pr.outputs.number }} --json baseRefName,headRefName)
+          echo "base_ref=$(echo $PR_DATA | jq -r .baseRefName)" >> $GITHUB_OUTPUT
+          echo "head_ref=$(echo $PR_DATA | jq -r .headRefName)" >> $GITHUB_OUTPUT
+
+      - name: Run AgentUse code review
+        env:
+          # GitHub authentication
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+          # AI Provider keys (AgentUse will use whichever is available)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+          # PR context for the agent
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          BASE_REF: ${{ steps.pr_details.outputs.base_ref }}
+          HEAD_REF: ${{ steps.pr_details.outputs.head_ref }}
+        run: |
+          # Determine model to use (input > env var > default in agent file)
+          MODEL="${{ github.event.inputs.model }}"
+          if [ -z "$MODEL" ] && [ -n "${{ env.MODEL }}" ]; then
+            MODEL="${{ env.MODEL }}"
+          fi
+
+          MODEL_ARG=""
+          if [ -n "$MODEL" ]; then
+            MODEL_ARG="-m $MODEL"
+          fi
+
+          # Determine which agent to run (TEST_AGENT env var for debugging)
+          AGENT_FILE="${{ env.TEST_AGENT }}"
+          if [ -z "$AGENT_FILE" ]; then
+            AGENT_FILE=".github/agents/code-review.agentuse"
+          fi
+          echo "Running agent: $AGENT_FILE"
+
+          # Add debug flag if requested
+          DEBUG_ARG=""
+          if [ "${{ env.AGENTUSE_DEBUG }}" = "true" ]; then
+            DEBUG_ARG="--debug"
+          fi
+
+          # Use local agentuse if mounted (for act testing), otherwise use npx
+          if [ "${{ env.USE_LOCAL_AGENTUSE }}" = "true" ] && [ -d "/agentuse" ]; then
+            echo "Using local agentuse from /agentuse"
+            node /agentuse/dist/index.js run "$AGENT_FILE" $MODEL_ARG --timeout 300 $DEBUG_ARG
+          else
+            npx -y agentuse@latest run "$AGENT_FILE" $MODEL_ARG --timeout 300 $DEBUG_ARG
+          fi

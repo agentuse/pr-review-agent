@@ -1,0 +1,94 @@
+# AgentUse Comment Reply Workflow
+#
+# Reply to @agentuse mentions in PR comments using AgentUse agents.
+#
+# SETUP: Add ONE of these secrets to your repository:
+#
+#   Option 1: Anthropic API Key (recommended)
+#   - Secret name: ANTHROPIC_API_KEY
+#   - Get from: https://console.anthropic.com
+#
+#   Option 2: Claude Code OAuth Token (for Claude Pro/Max users)
+#   - Secret name: CLAUDE_CODE_OAUTH_TOKEN
+#   - Get from: `claude setup-token` in Claude Code CLI (valid 1 year)
+#
+#   Option 3: OpenAI API Key
+#   - Secret name: OPENAI_API_KEY
+#   - Get from: https://platform.openai.com
+#   - Set MODEL env var to: openai:gpt-5.2
+#
+#   Option 4: OpenRouter API Key
+#   - Secret name: OPENROUTER_API_KEY
+#   - Get from: https://openrouter.ai/keys
+#   - Set MODEL env var to: openrouter:anthropic/claude-3.5-sonnet
+
+name: AgentUse
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: comment-reply-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  comment-reply:
+    name: Comment Reply
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@agentuse')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get PR number
+        id: pr
+        run: |
+          echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+      - name: Get PR details
+        id: pr_details
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_DATA=$(gh pr view ${{ steps.pr.outputs.number }} --json baseRefName,headRefName)
+          echo "base_ref=$(echo $PR_DATA | jq -r .baseRefName)" >> $GITHUB_OUTPUT
+          echo "head_ref=$(echo $PR_DATA | jq -r .headRefName)" >> $GITHUB_OUTPUT
+
+      - name: Run AgentUse comment reply
+        env:
+          # GitHub authentication
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+          # AI Provider keys
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+          # PR and comment context for the agent
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          BASE_REF: ${{ steps.pr_details.outputs.base_ref }}
+          HEAD_REF: ${{ steps.pr_details.outputs.head_ref }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          npx -y agentuse@latest run ".github/agents/comment-reply.agentuse" --timeout 300
