@@ -31,14 +31,13 @@ Go to **Settings → Secrets → Actions** and add one of:
 | `OPENAI_API_KEY` | [OpenAI](https://platform.openai.com) | GPT models |
 | `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai) | Multiple providers |
 
-<details>
-<summary>💡 <strong>Using Claude Pro/Max subscription (recommended)</strong></summary>
+💡 **Using Claude Pro/Max subscription**
+
+Run this command in your project directory (the one with `.github`):
 
 ```bash
 npx agentuse auth setup-github
 ```
-
-</details>
 
 ### 3. Done!
 
